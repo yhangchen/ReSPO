@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ReSPO — Reshaped Sequence Policy Optimization</title>
+    <meta
+      name="description"
+      content="ReSPO uses sign-aware sequence-weight reshaping to prevent gradient starvation in off-policy reinforcement learning."
+    />
+    <meta name="theme-color" content="#f7f9fc" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="ReSPO — Reshaped Sequence Policy Optimization" />
+    <meta
+      property="og:description"
+      content="A sign-aware approach to gradient allocation in off-policy learning."
+    />
+    <meta property="og:url" content="https://yhangchen.github.io/ReSPO/" />
+    <link rel="canonical" href="https://yhangchen.github.io/ReSPO/" />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2310172a'/%3E%3Cpath d='M13 40c7-1 8-21 18-21 9 0 9 25 20 25' fill='none' stroke='%233ed6bd' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='31' cy='19' r='5' fill='%23ff725e'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
+    <script src="./script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="nav-shell">
+        <a class="brand" href="#top" aria-label="ReSPO home">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>ReSPO</span>
+        </a>
+        <nav class="main-nav" aria-label="Primary navigation">
+          <a href="#idea">Idea</a>
+          <a href="#method">Method</a>
+          <a href="#results">Results</a>
+          <a href="#citation">Citation</a>
+        </nav>
+        <a class="nav-paper" href="https://arxiv.org/abs/2609.35433">Paper <span aria-hidden="true">↗</span></a>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero section-shell" id="top">
+        <div class="hero-copy reveal">
+          <p class="eyebrow">Off-policy reinforcement learning</p>
+          <h1><span>Re</span>shaped <span>S</span>equence <span>P</span>olicy <span>O</span>ptimization</h1>
+          <p class="hero-title">Gradient signal should follow what a response needs—not how stale it has become.</p>
+          <p class="hero-summary">
+            ReSPO reshapes sequence-level importance weights by advantage sign. It preserves learning signal for
+            under-generated positive responses and suppresses severely over-generated negative responses.
+          </p>
+
+          <div class="authors" aria-label="Authors">
+            <a href="mailto:yhangchen@cs.ucla.edu">Yihang Chen</a>
+            <a href="mailto:banyh2000@cs.ucla.edu">Yuanhao Ban</a>
+            <a href="mailto:chohsieh@cs.ucla.edu">Cho-Jui Hsieh</a>
+            <span>UCLA</span>
+          </div>
+
+          <div class="hero-actions">
+            <a class="button button-primary" href="https://arxiv.org/abs/2609.35433">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h8l4 4v16H6zM14 2v5h5M9 12h6M9 16h6" /></svg>
+              Read the paper
+            </a>
+            <a class="button button-secondary" href="https://github.com/yhangchen/ReSPO-code">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18 3 12l6-6M15 6l6 6-6 6M14 3l-4 18" /></svg>
+              View code
+            </a>
+          </div>
+        </div>
+
+        <div class="hero-visual reveal" aria-label="ReSPO tail behavior summary">
+          <div class="visual-header">
+            <span>Gradient allocation</span>
+            <span class="live-chip">sequence level</span>
+          </div>
+          <div class="ratio-axis" aria-hidden="true">
+            <span>\(W \to 0\)</span>
+            <div class="axis-line"><i></i></div>
+            <span>\(W \to \infty\)</span>
+          </div>
+          <article class="tail-row tail-positive">
+            <div>
+              <span class="tail-sign">\(\hat{A} > 0\)</span>
+              <strong>Positive response</strong>
+            </div>
+            <p><b>Preserve</b> signal when the response is becoming less likely.</p>
+            <div class="tail-curve positive-curve" aria-hidden="true">
+              <svg viewBox="0 0 180 54" preserveAspectRatio="none"><path d="M2 13 C44 14, 82 22, 113 36 S158 50,178 51" /></svg>
+            </div>
+          </article>
+          <article class="tail-row tail-negative">
+            <div>
+              <span class="tail-sign">\(\hat{A} < 0\)</span>
+              <strong>Negative response</strong>
+            </div>
+            <p><b>Suppress</b> both already-suppressed and over-generated tails.</p>
+            <div class="tail-curve negative-curve" aria-hidden="true">
+              <svg viewBox="0 0 180 54" preserveAspectRatio="none"><path d="M2 51 C38 47, 44 11, 79 13 S118 48,178 51" /></svg>
+            </div>
+          </article>
+          <p class="visual-note">\(W\) is the sequence likelihood ratio between the current and rollout policies.</p>
+        </div>
+      </section>
+
+      <section class="abstract section-shell reveal" aria-labelledby="abstract-title">
+        <div>
+          <p class="section-index">00 / Abstract</p>
+          <h2 id="abstract-title">Learning from reused rollouts without starving useful gradients.</h2>
+        </div>
+        <div class="abstract-copy">
+          <p>
+            Reusing rollouts across policy updates saves generation cost, but the current policy gradually diverges
+            from the policy that produced the data. Standard clipped objectives then underweight positive responses
+            that have become unlikely, while large-ratio negative responses can dominate an update.
+          </p>
+          <p>
+            ReSPO replaces clipping with a smooth, two-branch sequence-level kernel derived from an
+            \(\alpha\)-divergence objective and an exponential variance-control tilt. The result is faster early optimization,
+            stronger late-stage training scores, and higher held-out benchmark performance when rollout reuse is high.
+          </p>
+        </div>
+      </section>
+
+      <section class="section-shell section-block" id="idea" aria-labelledby="idea-title">
+        <div class="section-heading reveal">
+          <p class="section-index">01 / The idea</p>
+          <h2 id="idea-title">Clipping leaves two tails untreated.</h2>
+          <p>Positive and negative group-relative advantages need different behavior at the extremes of policy drift.</p>
+        </div>
+
+        <div class="problem-grid">
+          <article class="problem-card reveal">
+            <span class="problem-number">01</span>
+            <div class="problem-icon low" aria-hidden="true">\(W \downarrow\)</div>
+            <h3>Starved positive update</h3>
+            <p>
+              For \(\hat{A} > 0\) and \(W \to 0\), clipping makes the recovery signal vanish. A useful response that the current
+              policy is forgetting receives almost no gradient.
+            </p>
+            <div class="problem-outcome"><span>ReSPO</span> keeps a nonzero limit</div>
+          </article>
+          <article class="problem-card reveal">
+            <span class="problem-number">02</span>
+            <div class="problem-icon high" aria-hidden="true">\(W \uparrow\)</div>
+            <h3>Dominating negative update</h3>
+            <p>
+              For \(\hat{A} < 0\) and \(W \to \infty\), the unclipped gradient weight grows without bound. A negative response can
+              overwhelm the rest of a reused rollout batch.
+            </p>
+            <div class="problem-outcome"><span>ReSPO</span> drives the tail to zero</div>
+          </article>
+        </div>
+
+        <div class="tail-table-wrap reveal">
+          <div>
+            <p class="mini-label">Required tail limits</p>
+            <h3>One kernel family, two sign-specific branches.</h3>
+          </div>
+          <div class="tail-table" role="table" aria-label="ReSPO tail behavior">
+            <div class="tail-table-row table-head" role="row">
+              <span role="columnheader">Branch</span>
+              <span role="columnheader">\(W \to 0\)</span>
+              <span role="columnheader">\(W \to \infty\)</span>
+            </div>
+            <div class="tail-table-row" role="row">
+              <span role="cell">Positive \(\hat{A} \geq 0\)</span>
+              <span class="preserve" role="cell">preserve</span>
+              <span class="suppress" role="cell">suppress</span>
+            </div>
+            <div class="tail-table-row" role="row">
+              <span role="cell">Negative \(\hat{A} < 0\)</span>
+              <span class="suppress" role="cell">suppress</span>
+              <span class="suppress" role="cell">suppress</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="method-section" id="method" aria-labelledby="method-title">
+        <div class="section-shell">
+          <div class="section-heading light reveal">
+            <p class="section-index">02 / Method</p>
+            <h2 id="method-title">Reshape the sequence weight, then control its variance.</h2>
+            <p>ReSPO turns tail requirements into a smooth per-sequence gradient coefficient.</p>
+          </div>
+
+          <div class="method-grid">
+            <figure class="figure-card reveal">
+              <img
+                src="./assets/kernel-comparison.webp"
+                alt="Positive and negative ReSPO kernels compared with clipping and VESPO across the sequence importance ratio"
+                width="1870"
+                height="843"
+              />
+              <figcaption>
+                ReSPO preserves positive-branch signal near \(W=0\) while suppressing both negative-branch tails.
+              </figcaption>
+            </figure>
+
+            <div class="method-steps">
+              <article class="method-step reveal">
+                <span>01</span>
+                <div><h3>Change the measure</h3><p>Interpret replacing \(W\) with \(\phi(W)\) as defining an unnormalized measure over responses.</p></div>
+              </article>
+              <article class="method-step reveal">
+                <span>02</span>
+                <div><h3>Shape each tail</h3><p>Use an \(\alpha\)-divergence power mean, selecting \(\alpha\) by the sign of the group-relative advantage.</p></div>
+              </article>
+              <article class="method-step reveal">
+                <span>03</span>
+                <div><h3>Apply a smooth tilt</h3><p>Project under a moment constraint to obtain an exponential factor that controls large weights.</p></div>
+              </article>
+            </div>
+          </div>
+
+          <div class="formula-grid reveal">
+            <article>
+              <span class="formula-label positive">Positive branch</span>
+              <p class="formula">\(\displaystyle \phi^{(+)}(W)=\frac{1+W}{2}\exp(1-W)\)</p>
+              <p>Maximum signal at \(W=0\); smooth decay as the response becomes over-generated.</p>
+            </article>
+            <article>
+              <span class="formula-label negative">Negative branch</span>
+              <p class="formula">\(\displaystyle \phi^{(-)}(W)=\sqrt{W}\exp\!\left(2(1-\sqrt{W})\right)\)</p>
+              <p>Zero weight at both extremes; value and slope match the positive branch at \(W=1\).</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-shell section-block results-section" id="results" aria-labelledby="results-title">
+        <div class="section-heading reveal">
+          <p class="section-index">03 / Results</p>
+          <h2 id="results-title">The advantage grows when rollout reuse is hardest.</h2>
+          <p>
+            Experiments cover Qwen3-1.7B and Qwen3-30B-A3B, three rollout-reuse ratios, and six held-out math benchmarks.
+          </p>
+        </div>
+
+        <div class="metrics-grid">
+          <article class="metric-card featured reveal">
+            <p class="metric-value">\(+8.4\,\mathrm{pp}\)</p>
+            <p class="metric-title">Late-stage training score</p>
+            <p>Maximum gain over the strongest clipped baseline at \(N=32\).</p>
+          </article>
+          <article class="metric-card reveal">
+            <p class="metric-value">\(\frac{5}{6}\)</p>
+            <p class="metric-title">Highest late score</p>
+            <p>Highest observed mean over the final 128 updates across model–reuse settings.</p>
+          </article>
+          <article class="metric-card reveal">
+            <p class="metric-value">\(\frac{17}{24}\)</p>
+            <p class="metric-title">High-reuse benchmark wins</p>
+            <p>Highest observed value across model–benchmark comparisons at \(N=16\) and \(N=32\).</p>
+          </article>
+          <article class="metric-card reveal">
+            <p class="metric-value">\(\frac{4}{4}\)</p>
+            <p class="metric-title">High-reuse evaluations</p>
+            <p>Highest benchmark average at \(N=16\) and \(N=32\) on both models.</p>
+          </article>
+        </div>
+
+        <figure class="results-figure reveal">
+          <div class="figure-topline">
+            <div><span>Training dynamics</span><h3>ReSPO separates early and stays ahead.</h3></div>
+            <span class="figure-key">Normalized training score</span>
+          </div>
+          <img
+            src="./assets/training-performance.webp"
+            alt="Training curves for GRPO, GSPO, VESPO, and ReSPO on Qwen3 1.7B and 30B-A3B across rollout reuse ratios 8, 16, and 32"
+            width="1609"
+            height="1398"
+            loading="lazy"
+          />
+          <figcaption>
+            ReSPO reaches the highest observed early peak in five of six settings and exceeds the strongest clipped
+            baseline in late mean across all six.
+          </figcaption>
+        </figure>
+
+        <section class="training-summaries" aria-labelledby="training-summary-title">
+          <div class="training-summary-intro reveal">
+            <div>
+              <p class="mini-label">Training-log summary</p>
+              <h3 id="training-summary-title">ReSPO leads in \(10\) of \(12\) settings.</h3>
+            </div>
+            <p>
+              Figure 2 summaries from the paper. The early score is the maximum through policy update \(256\);
+              the late score is the policy-step-weighted mean over updates \(896\text{--}1024\). Bold marks the
+              largest observed value in each row.
+            </p>
+          </div>
+
+          <div class="training-table-grid">
+            <article class="training-table-card reveal">
+              <header>
+                <span>Early optimization</span>
+                <h4>First \(256\) max</h4>
+              </header>
+              <div class="training-table-wrap">
+                <table class="training-table">
+                  <caption>Maximum normalized training score through policy update 256.</caption>
+                  <thead><tr><th>Model</th><th>\(N\)</th><th>GRPO</th><th>GSPO</th><th>VESPO</th><th class="respo-column">ReSPO</th></tr></thead>
+                  <tbody>
+                    <tr><th rowspan="3" scope="rowgroup">Qwen3-1.7B</th><th scope="row">\(8\)</th><td>\(0.169\)</td><td>\(0.158\)</td><td>\(0.161\)</td><td class="respo-column"><strong>\(0.192\)</strong></td></tr>
+                    <tr><th scope="row">\(16\)</th><td>\(0.156\)</td><td>\(0.127\)</td><td>\(0.151\)</td><td class="respo-column"><strong>\(0.166\)</strong></td></tr>
+                    <tr><th scope="row">\(32\)</th><td>\(0.118\)</td><td>\(0.106\)</td><td>\(0.127\)</td><td class="respo-column"><strong>\(0.157\)</strong></td></tr>
+                  </tbody>
+                  <tbody>
+                    <tr><th rowspan="3" scope="rowgroup">Qwen3-30B-A3B</th><th scope="row">\(8\)</th><td><strong>\(0.478\)</strong></td><td>\(0.416\)</td><td>\(0.414\)</td><td class="respo-column">\(0.468\)</td></tr>
+                    <tr><th scope="row">\(16\)</th><td>\(0.403\)</td><td>\(0.369\)</td><td>\(0.386\)</td><td class="respo-column"><strong>\(0.445\)</strong></td></tr>
+                    <tr><th scope="row">\(32\)</th><td>\(0.362\)</td><td>\(0.341\)</td><td>\(0.364\)</td><td class="respo-column"><strong>\(0.418\)</strong></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="training-table-card reveal">
+              <header>
+                <span>Late optimization</span>
+                <h4>Last \(128\) mean</h4>
+              </header>
+              <div class="training-table-wrap">
+                <table class="training-table">
+                  <caption>Mean normalized training score over policy updates 896 through 1024.</caption>
+                  <thead><tr><th>Model</th><th>\(N\)</th><th>GRPO</th><th>GSPO</th><th>VESPO</th><th class="respo-column">ReSPO</th></tr></thead>
+                  <tbody>
+                    <tr><th rowspan="3" scope="rowgroup">Qwen3-1.7B</th><th scope="row">\(8\)</th><td>\(0.213\)</td><td>\(0.209\)</td><td>\(0.275\)</td><td class="respo-column"><strong>\(0.286\)</strong></td></tr>
+                    <tr><th scope="row">\(16\)</th><td>\(0.210\)</td><td>\(0.199\)</td><td><strong>\(0.268\)</strong></td><td class="respo-column">\(0.264\)</td></tr>
+                    <tr><th scope="row">\(32\)</th><td>\(0.197\)</td><td>\(0.184\)</td><td>\(0.230\)</td><td class="respo-column"><strong>\(0.276\)</strong></td></tr>
+                  </tbody>
+                  <tbody>
+                    <tr><th rowspan="3" scope="rowgroup">Qwen3-30B-A3B</th><th scope="row">\(8\)</th><td>\(0.530\)</td><td>\(0.538\)</td><td>\(0.538\)</td><td class="respo-column"><strong>\(0.595\)</strong></td></tr>
+                    <tr><th scope="row">\(16\)</th><td>\(0.498\)</td><td>\(0.521\)</td><td>\(0.531\)</td><td class="respo-column"><strong>\(0.563\)</strong></td></tr>
+                    <tr><th scope="row">\(32\)</th><td>\(0.504\)</td><td>\(0.493\)</td><td>\(0.523\)</td><td class="respo-column"><strong>\(0.588\)</strong></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="evaluation-results" aria-labelledby="evaluation-title">
+          <div class="evaluation-intro reveal">
+            <div>
+              <p class="mini-label">Held-out evaluation</p>
+              <h3 id="evaluation-title">ReSPO gains ground as rollout reuse increases.</h3>
+            </div>
+            <p>
+              At \(N=8\), ReSPO remains close to the strongest macro average. At \(N=16\) and \(N=32\),
+              ReSPO has the highest observed average on both model scales. Results are final-checkpoint pass@1
+              percentages; the final column is the six-benchmark macro mean.
+            </p>
+          </div>
+
+          <div class="evaluation-panels">
+            <article class="evaluation-panel reveal">
+              <header class="evaluation-panel-header">
+                <div><span class="reuse-label">Rollout reuse</span><h4>\(N=8\)</h4></div>
+                <div class="evaluation-summary"><strong>Comparable averages</strong><span>Competition gains are offset on the broader suite.</span></div>
+                <div class="gain-pills" aria-label="ReSPO macro-average difference from the best baseline">
+                  <span class="gain-pill neutral"><b>1.7B</b> \(-0.5\,\mathrm{pp}\)</span>
+                  <span class="gain-pill neutral"><b>30B</b> \(-0.2\,\mathrm{pp}\)</span>
+                </div>
+              </header>
+              <div class="evaluation-table-wrap">
+                <table class="evaluation-table">
+                  <caption>Final-checkpoint evaluation at rollout reuse N equals 8.</caption>
+                  <thead><tr><th>Model</th><th>Method</th><th>AIME25</th><th>AIME24</th><th>AMC23</th><th>Olymp.</th><th>Minerva</th><th>MATH500</th><th class="average-column">Avg.</th></tr></thead>
+                  <tbody>
+                    <tr><th rowspan="4" scope="rowgroup">Qwen3-1.7B</th><th scope="row">GRPO</th><td>\(4.2\)</td><td>\(7.5\)</td><td>\(35.3\)</td><td>\(28.4\)</td><td>\(28.6\)</td><td>\(66.5\)</td><td class="average-column">\(28.4\)</td></tr>
+                    <tr><th scope="row">GSPO</th><td>\(6.2\)</td><td>\(7.7\)</td><td>\(40.2\)</td><td>\(30.4\)</td><td>\(27.2\)</td><td>\(65.8\)</td><td class="average-column">\(29.6\)</td></tr>
+                    <tr><th scope="row">VESPO</th><td>\(7.3\)</td><td>\(12.7\)</td><td>\(47.8\)</td><td><strong>\(38.8\)</strong></td><td><strong>\(30.7\)</strong></td><td><strong>\(74.2\)</strong></td><td class="average-column"><strong>\(35.3\)</strong></td></tr>
+                    <tr class="respo-row"><th scope="row">ReSPO</th><td><strong>\(9.0\)</strong></td><td><strong>\(13.3\)</strong></td><td><strong>\(48.4\)</strong></td><td>\(36.8\)</td><td>\(28.9\)</td><td>\(72.6\)</td><td class="average-column">\(34.8\)</td></tr>
+                  </tbody>
+                  <tbody>
+                    <tr><th rowspan="4" scope="rowgroup">Qwen3-30B-A3B</th><th scope="row">GRPO</th><td>\(15.2\)</td><td>\(24.8\)</td><td>\(73.8\)</td><td>\(51.1\)</td><td>\(43.6\)</td><td>\(85.2\)</td><td class="average-column">\(49.0\)</td></tr>
+                    <tr><th scope="row">GSPO</th><td>\(18.1\)</td><td>\(26.7\)</td><td>\(71.3\)</td><td><strong>\(52.1\)</strong></td><td>\(43.9\)</td><td><strong>\(86.1\)</strong></td><td class="average-column"><strong>\(49.7\)</strong></td></tr>
+                    <tr><th scope="row">VESPO</th><td>\(15.4\)</td><td>\(27.3\)</td><td>\(70.0\)</td><td>\(51.7\)</td><td><strong>\(45.4\)</strong></td><td>\(85.3\)</td><td class="average-column">\(49.2\)</td></tr>
+                    <tr class="respo-row"><th scope="row">ReSPO</th><td><strong>\(25.2\)</strong></td><td><strong>\(30.6\)</strong></td><td><strong>\(79.1\)</strong></td><td>\(42.7\)</td><td>\(41.1\)</td><td>\(78.3\)</td><td class="average-column">\(49.5\)</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="evaluation-panel high-reuse reveal">
+              <header class="evaluation-panel-header">
+                <div><span class="reuse-label">Rollout reuse</span><h4>\(N=16\)</h4></div>
+                <div class="evaluation-summary"><strong>ReSPO leads both scales</strong><span>The advantage emerges as off-policy drift grows.</span></div>
+                <div class="gain-pills" aria-label="ReSPO macro-average gain over the best baseline">
+                  <span class="gain-pill positive"><b>1.7B</b> \(+0.8\,\mathrm{pp}\)</span>
+                  <span class="gain-pill positive"><b>30B</b> \(+3.2\,\mathrm{pp}\)</span>
+                </div>
+              </header>
+              <div class="evaluation-table-wrap">
+                <table class="evaluation-table">
+                  <caption>Final-checkpoint evaluation at rollout reuse N equals 16.</caption>
+                  <thead><tr><th>Model</th><th>Method</th><th>AIME25</th><th>AIME24</th><th>AMC23</th><th>Olymp.</th><th>Minerva</th><th>MATH500</th><th class="average-column">Avg.</th></tr></thead>
+                  <tbody>
+                    <tr><th rowspan="4" scope="rowgroup">Qwen3-1.7B</th><th scope="row">GRPO</th><td>\(7.1\)</td><td>\(8.3\)</td><td>\(43.1\)</td><td>\(30.3\)</td><td>\(27.8\)</td><td>\(66.3\)</td><td class="average-column">\(30.5\)</td></tr>
+                    <tr><th scope="row">GSPO</th><td>\(4.6\)</td><td>\(7.5\)</td><td>\(41.9\)</td><td>\(31.9\)</td><td>\(28.3\)</td><td>\(67.2\)</td><td class="average-column">\(30.2\)</td></tr>
+                    <tr><th scope="row">VESPO</th><td>\(6.5\)</td><td>\(10.6\)</td><td>\(46.4\)</td><td><strong>\(36.4\)</strong></td><td><strong>\(30.1\)</strong></td><td>\(71.2\)</td><td class="average-column">\(33.5\)</td></tr>
+                    <tr class="respo-row"><th scope="row">ReSPO</th><td><strong>\(9.4\)</strong></td><td><strong>\(12.3\)</strong></td><td><strong>\(46.7\)</strong></td><td>\(35.8\)</td><td>\(29.9\)</td><td><strong>\(71.7\)</strong></td><td class="average-column"><strong>\(34.3\)</strong></td></tr>
+                  </tbody>
+                  <tbody>
+                    <tr><th rowspan="4" scope="rowgroup">Qwen3-30B-A3B</th><th scope="row">GRPO</th><td>\(13.8\)</td><td>\(24.6\)</td><td>\(73.3\)</td><td>\(49.0\)</td><td>\(42.4\)</td><td>\(83.1\)</td><td class="average-column">\(47.7\)</td></tr>
+                    <tr><th scope="row">GSPO</th><td>\(15.6\)</td><td>\(26.5\)</td><td>\(70.0\)</td><td>\(49.3\)</td><td>\(45.2\)</td><td>\(84.8\)</td><td class="average-column">\(48.6\)</td></tr>
+                    <tr><th scope="row">VESPO</th><td>\(15.2\)</td><td>\(30.0\)</td><td>\(70.0\)</td><td><strong>\(51.5\)</strong></td><td>\(43.6\)</td><td>\(85.4\)</td><td class="average-column">\(49.3\)</td></tr>
+                    <tr class="respo-row"><th scope="row">ReSPO</th><td><strong>\(21.3\)</strong></td><td><strong>\(32.1\)</strong></td><td><strong>\(79.2\)</strong></td><td>\(51.2\)</td><td><strong>\(45.7\)</strong></td><td><strong>\(85.7\)</strong></td><td class="average-column"><strong>\(52.5\)</strong></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="evaluation-panel high-reuse reveal">
+              <header class="evaluation-panel-header">
+                <div><span class="reuse-label">Rollout reuse</span><h4>\(N=32\)</h4></div>
+                <div class="evaluation-summary"><strong>ReSPO leads at maximum reuse</strong><span>The high-reuse advantage remains on both model scales.</span></div>
+                <div class="gain-pills" aria-label="ReSPO macro-average gain over the best baseline">
+                  <span class="gain-pill positive"><b>1.7B</b> \(+1.3\,\mathrm{pp}\)</span>
+                  <span class="gain-pill positive"><b>30B</b> \(+1.9\,\mathrm{pp}\)</span>
+                </div>
+              </header>
+              <div class="evaluation-table-wrap">
+                <table class="evaluation-table">
+                  <caption>Final-checkpoint evaluation at rollout reuse N equals 32.</caption>
+                  <thead><tr><th>Model</th><th>Method</th><th>AIME25</th><th>AIME24</th><th>AMC23</th><th>Olymp.</th><th>Minerva</th><th>MATH500</th><th class="average-column">Avg.</th></tr></thead>
+                  <tbody>
+                    <tr><th rowspan="4" scope="rowgroup">Qwen3-1.7B</th><th scope="row">GRPO</th><td>\(5.2\)</td><td>\(4.0\)</td><td>\(38.3\)</td><td>\(28.9\)</td><td>\(27.8\)</td><td>\(65.3\)</td><td class="average-column">\(28.3\)</td></tr>
+                    <tr><th scope="row">GSPO</th><td>\(4.6\)</td><td>\(5.4\)</td><td>\(38.1\)</td><td>\(29.9\)</td><td><strong>\(29.9\)</strong></td><td>\(66.3\)</td><td class="average-column">\(29.0\)</td></tr>
+                    <tr><th scope="row">VESPO</th><td>\(8.1\)</td><td><strong>\(13.1\)</strong></td><td>\(45.6\)</td><td>\(34.1\)</td><td>\(28.2\)</td><td>\(69.8\)</td><td class="average-column">\(33.2\)</td></tr>
+                    <tr class="respo-row"><th scope="row">ReSPO</th><td><strong>\(8.8\)</strong></td><td>\(11.7\)</td><td><strong>\(48.8\)</strong></td><td><strong>\(36.7\)</strong></td><td>\(28.0\)</td><td><strong>\(72.9\)</strong></td><td class="average-column"><strong>\(34.5\)</strong></td></tr>
+                  </tbody>
+                  <tbody>
+                    <tr><th rowspan="4" scope="rowgroup">Qwen3-30B-A3B</th><th scope="row">GRPO</th><td>\(12.3\)</td><td><strong>\(31.3\)</strong></td><td>\(71.7\)</td><td>\(50.3\)</td><td>\(44.4\)</td><td>\(85.0\)</td><td class="average-column">\(49.2\)</td></tr>
+                    <tr><th scope="row">GSPO</th><td>\(14.6\)</td><td>\(23.1\)</td><td>\(66.4\)</td><td>\(47.5\)</td><td>\(42.3\)</td><td>\(83.5\)</td><td class="average-column">\(46.2\)</td></tr>
+                    <tr><th scope="row">VESPO</th><td>\(17.7\)</td><td>\(27.7\)</td><td>\(70.9\)</td><td>\(50.0\)</td><td>\(44.4\)</td><td><strong>\(85.2\)</strong></td><td class="average-column">\(49.3\)</td></tr>
+                    <tr class="respo-row"><th scope="row">ReSPO</th><td><strong>\(20.2\)</strong></td><td>\(26.9\)</td><td><strong>\(79.5\)</strong></td><td><strong>\(51.0\)</strong></td><td><strong>\(45.1\)</strong></td><td>\(84.4\)</td><td class="average-column"><strong>\(51.2\)</strong></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </section>
+      </section>
+
+      <section class="citation-section" id="citation" aria-labelledby="citation-title">
+        <div class="section-shell citation-grid">
+          <div class="reveal">
+            <p class="section-index">04 / Citation</p>
+            <h2 id="citation-title">Build on ReSPO.</h2>
+            <p>Read the full derivation, implementation details, and complete evaluation protocol in the paper.</p>
+            <div class="citation-links">
+              <a href="https://arxiv.org/abs/2609.35433">Paper on arXiv <span aria-hidden="true">↗</span></a>
+              <a href="https://github.com/yhangchen/ReSPO-code">Implementation <span aria-hidden="true">↗</span></a>
+            </div>
+          </div>
+          <div class="bibtex-card reveal">
+            <div class="bibtex-header"><span>BibTeX</span><button id="copy-citation" type="button">Copy</button></div>
+            <pre id="bibtex"><code>@misc{chen2026respo,
+  title  = {ReSPO: Reshaped Sequence Policy Optimization
+            for Gradient Starvation in Off-Policy Learning},
+  author = {Chen, Yihang and Ban, Yuanhao and Hsieh, Cho-Jui},
+  year   = {2026},
+  note   = {Preprint}
+}</code></pre>
+            <p class="copy-status" id="copy-status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="section-shell footer-inner">
+        <a class="brand footer-brand" href="#top"><span class="brand-mark" aria-hidden="true"></span><span>ReSPO</span></a>
+        <p>Reshaped Sequence Policy Optimization for off-policy learning.</p>
+        <a href="https://github.com/yhangchen/ReSPO">Page source <span aria-hidden="true">↗</span></a>
+      </div>
+    </footer>
+  </body>
+</html>
